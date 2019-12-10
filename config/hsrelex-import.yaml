@@ -1,5 +1,0 @@
-db-user: pubmed
-db-password: pubmed
-db-host: erlang.informatik.uni-ulm.de 
-db-port: 23233 
-db-database: pubmed
