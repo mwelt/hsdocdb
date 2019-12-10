@@ -1,0 +1,38 @@
+cabal-version:  1.12
+name:           hsrelex-docdb
+version:        0.0.1
+author:         Michael Welt 
+maintainer:     michael.welt@uni-ulm.de
+copyright:      2019 Michael Welt 
+build-type:     Simple
+
+executable hsrelex-docdb-exe
+  main-is: Main.hs
+  other-modules:
+      Paths_hsrelex_docdb
+  hs-source-dirs:
+      src 
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      aeson
+    , lens
+    , lens-aeson
+    , async-pool
+    , base >=4.7 && <5
+    , bytestring
+    , binary
+    , text
+    , unordered-containers
+    , containers
+    , directory
+    , xeno 
+    , mtl
+    , say
+    , string-conversions
+    , transformers
+    , vector
+    , zlib
+    , yaml
+    , connection
+    , http-client
+  default-language: Haskell2010

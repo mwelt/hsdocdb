@@ -1,0 +1,3 @@
+POST http://localhost:9000/?properties={"annotators":"tokenize,ssplit","outputFormat":"json"}
+
+The Quick brown fox jumped over the lazy dog.

@@ -1,0 +1,14 @@
+.stack-work/
+hsrelex.cabal
+*~.stack-work
+**/.DS_Store
+data/
+target/
+**/#*#
+dist/
+stanford/
+dist-newstyle/
+docker/
+sync.sh
+dictionary.bin
+
