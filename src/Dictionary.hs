@@ -15,33 +15,36 @@ import qualified Internal.Types as Int
 import Types
 
 import Control.Concurrent.MVar
-import Control.Exception
+--import Control.Exception
 import Control.Monad.IO.Class
 import Control.Monad.Reader
+import Control.Monad.Exception
 
 import System.IO
 
 import qualified Data.Binary.Get as BG
-import qualified Data.ByteString as BS
+import qualified Data.Binary.Put as BP
 import qualified Data.ByteString.Lazy as LBS
-import qualified Data.ByteString.Builder as BSB
+import qualified Data.ByteString as BS
 import qualified Data.HashMap.Strict as HM
 import qualified Data.IntMap.Strict as IM
+import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
-
+import Data.Word
 
 type Ext2Int = (HM.HashMap Ext.Token Int.Token)
 type Int2Ext = (IM.IntMap Ext.Token)
 
 class (Monad m, MonadIO m) => HasDictionary m where
+  -- use words
   getDictionaryExt2Int :: m Ext2Int 
   getDictionaryInt2Ext :: m Int2Ext 
-  getCurrentIndex :: m Int
+  getCurrentIndex :: m Word32 
   setDictionaryExt2Int :: Ext2Int -> m ()
   setDictionaryInt2Ext :: Int2Ext -> m ()
-  setCurrentIndex :: Int -> m ()
-  binFileHandle :: m Handle
-  getMutex :: m (MVar ()) 
+  setCurrentIndex :: Word32 -> m ()
+  getBinFileHandle :: m Handle
+  getBinFile :: m String
 
 class CanTranslate a b where
   translate :: (HasDictionary m) => a -> m (Maybe b)
@@ -50,79 +53,76 @@ instance CanTranslate Ext.Token Int.Token where
   translate t = getDictionaryExt2Int >>= pure . (HM.lookup t)
 
 instance CanTranslate Int.Token Ext.Token where
-  translate t = getDictionaryInt2Ext >>= pure . (IM.lookup t)
+  translate t = getDictionaryInt2Ext >>= pure . (IM.lookup . fromIntegral $ t)
 
 instance MonadIO m => HasDictionary (AppT m) where
-  getDictionaryExt2Int = asks dEDictionaryExt2Int >>= liftIO . readMVar
-  getDictionaryInt2Ext = asks dEDictionaryInt2Ext >>= liftIO . readMVar
-  getCurrentIndex = asks dECurrentIndex >>= liftIO . readMVar 
-  setDictionaryExt2Int d = asks dEDictionaryExt2Int >>= liftIO . flip swapMVar d >> pure ()
-  setDictionaryInt2Ext d = asks dEDictionaryInt2Ext >>= liftIO . flip swapMVar d >> pure ()
-  setCurrentIndex i = asks dECurrentIndex >>= liftIO . flip swapMVar i >> pure ()
-  binFileHandle = asks dEBinFileHandle
-  getMutex = asks dEMutex 
+  getDictionaryExt2Int = asks (dEDictionaryExt2Int . aEDictionaryEnv)
+    >>= liftIO . readMVar
+  getDictionaryInt2Ext = asks (dEDictionaryInt2Ext . aEDictionaryEnv) 
+    >>= liftIO . readMVar
+  getCurrentIndex = asks (dECurrentIndex . aEDictionaryEnv)
+   >>= liftIO . readMVar 
+  setDictionaryExt2Int d = asks (dEDictionaryExt2Int . aEDictionaryEnv)
+    >>= liftIO . flip swapMVar d >> pure ()
+  setDictionaryInt2Ext d = asks (dEDictionaryInt2Ext . aEDictionaryEnv)
+    >>= liftIO . flip swapMVar d >> pure ()
+  setCurrentIndex i = asks (dECurrentIndex . aEDictionaryEnv)
+    >>= liftIO . flip swapMVar i >> pure ()
+  getBinFileHandle = asks (dEBinFileHandle . aEDictionaryEnv)
+  getBinFile = asks (dEBinFile . aEDictionaryEnv)
 
-addToken :: HasDictionary m => Ext.Token -> m Int.Token
-addToken t = do
-  -- synchronize writing of dictionary
-  mutex <- getMutex
-  liftIO $ takeMVar mutex 
-
-  mi <- translate t
-  case mi of
-    Just n -> liftIO $ putMVar mutex () >> pure n 
-    Nothing -> do
-      idx <- (1+) <$> getCurrentIndex
-      f <- binFileHandle
-      seek <- liftIO $ do
-        let bs = TE.encodeUtf8 t 
-        -- TODO: wrap in bracket to release mutex
-        BSB.hPutBuilder f $ (BSB.int32LE . fromIntegral $ idx)
-          <> (BSB.int32LE . fromIntegral $ BS.length bs)
-          <> BSB.byteString bs
-        hTell f
-      liftIO $ putStrLn . show $ seek
-      setCurrentIndex idx
-      IM.insert idx t <$> getDictionaryInt2Ext >>= setDictionaryInt2Ext
-      HM.insert t idx <$> getDictionaryExt2Int >>= setDictionaryExt2Int
-      liftIO $ putMVar mutex ()
-      pure idx
-
-fromPersistence :: HasDictionary m => m ()  
-fromPersistence = do
-  f <- liftIO $ openFile "dictionary.bin" ReadMode 
-  (maxIdx, int2ext, ext2int) <- liftIO $ readEntry 0 f IM.empty HM.empty
-  setDictionaryExt2Int ext2int
-  setDictionaryInt2Ext int2ext
-  setCurrentIndex maxIdx
-  
+addToken :: (HasMutex m, HasDictionary m) => Ext.Token -> m Int.Token
+addToken extToken = withMutex (go extToken)
   where
+    go extToken = do
+      binFileH <- getBinFileHandle
+      intToken <- translate extToken 
+      case intToken of
+        Just n -> pure n 
+        Nothing -> do
+          idx <- getCurrentIndex
+          binFileH <- getBinFileHandle
+          liftIO $ (LBS.hPut binFileH) . BP.runPut $ putEntry idx extToken 
+          IM.insert (fromIntegral idx) extToken <$> getDictionaryInt2Ext
+            >>= setDictionaryInt2Ext
+          HM.insert extToken idx <$> getDictionaryExt2Int
+            >>= setDictionaryExt2Int
+          setCurrentIndex $ (+1) idx
+          pure idx
+
+    putEntry :: Word32 -> T.Text -> BP.Put 
+    putEntry idx token = do
+      let bsToken = TE.encodeUtf8 token
+      BP.putWord32host . fromIntegral $ idx
+      BP.putWord16host . fromIntegral $ BS.length bsToken
+      BP.putByteString bsToken
+      
+fromPersistence :: (MonadAsyncException m, HasDictionary m) => m ()  
+fromPersistence = getBinFile >>= \f -> Types.withFile f ReadMode go
+
+  where 
+    go binFileH = do 
+      (maxIdx, int2ext, ext2int) <- liftIO $ do
+        lbs <- LBS.hGetContents binFileH 
+        pure $ BG.runGet (readEntry 0 IM.empty HM.empty) lbs
+      setDictionaryExt2Int ext2int
+      setDictionaryInt2Ext int2ext
+      setCurrentIndex maxIdx
+
     readEntry
-      :: Int
-      -> Handle
+      :: Word32
       -> Int2Ext
       -> Ext2Int
-      -> IO (Int, Int2Ext, Ext2Int) 
-    readEntry maxIdx f int2ext ext2int = do
-      -- read ouverture with 4 byte idx and 4 byte strlen
-      ovBs <- LBS.hGet f (4 * 2)  
-      -- if ouverture is empty, the end of file is reached
-      if ovBs == LBS.empty then
+      -> BG.Get (Word32, Int2Ext, Ext2Int)
+    readEntry maxIdx int2ext ext2int = do
+      empty <- BG.isEmpty
+      if empty then
         pure (maxIdx, int2ext, ext2int)
       else do
-        -- parse these 8 bytes 
-        let (idx, sSize) = BG.runGet readIdxAndStrLen ovBs
-        -- and read the whole str
-        tBs <- BS.hGet f sSize
-        let t = TE.decodeUtf8 tBs 
-        -- recur
-        readEntry (max maxIdx idx) f (IM.insert idx t int2ext) (HM.insert t idx ext2int) 
-
-    readIdxAndStrLen :: BG.Get (Int, Int) 
-    readIdxAndStrLen = (\a b -> (fromIntegral a, fromIntegral b)) <$> BG.getInt32le <*> BG.getInt32le
-
-    
-
-      
-
-      
+        idx <- BG.getWord32host
+        len <- BG.getWord16host
+        tokenBS <- BG.getByteString (fromIntegral len)
+        let token = TE.decodeUtf8 tokenBS
+        readEntry (max maxIdx idx)
+         (IM.insert (fromIntegral idx) token int2ext)
+         (HM.insert token idx ext2int)
