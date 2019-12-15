@@ -11,4 +11,6 @@ dist-newstyle/
 docker/
 sync.sh
 dictionary.bin
+sentences.bin
+sentences.idx
 
