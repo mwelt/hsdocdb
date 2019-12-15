@@ -15,7 +15,6 @@ import qualified Internal.Types as Int
 import Types
 
 import Control.Concurrent.MVar
---import Control.Exception
 import Control.Monad.IO.Class
 import Control.Monad.Reader
 import Control.Monad.Exception
@@ -45,6 +44,8 @@ class (Monad m, MonadIO m) => HasDictionary m where
   setCurrentIndex :: Word32 -> m ()
   getBinFileHandle :: m Handle
   getBinFile :: m String
+  getMutex :: m (MVar ())
+  close :: m ()
 
 class CanTranslate a b where
   translate :: (HasDictionary m) => a -> m (Maybe b)
@@ -70,9 +71,11 @@ instance MonadIO m => HasDictionary (AppT m) where
     >>= liftIO . flip swapMVar i >> pure ()
   getBinFileHandle = asks (dEBinFileHandle . aEDictionaryEnv)
   getBinFile = asks (dEBinFile . aEDictionaryEnv)
-
-addToken :: (HasMutex m, HasDictionary m) => Ext.Token -> m Int.Token
-addToken extToken = withMutex (go extToken)
+  getMutex = asks (dEMutex . aEDictionaryEnv)
+  close = getBinFileHandle >>= liftIO . hClose
+ 
+addToken :: (MonadAsyncException m, HasDictionary m) => Ext.Token -> m Int.Token
+addToken extToken = getMutex >>= flip withMutex (go extToken)
   where
     go extToken = do
       binFileH <- getBinFileHandle

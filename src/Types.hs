@@ -5,15 +5,14 @@ module Types
   , AppEnv (..)
   , DictionaryEnv (..)
   , SentencePersistenceEnv (..)
-  , HasMutex (..)
   , withMutex
   , Types.withFile
   , newDictionaryEnv
   , newSentencePersistenceEnv
   , newAppEnv
-  , defaultSentencePersistenceBinFile
-  , defaultSentencePersistenceIdxFile
-  , defaultDictionaryBinFile
+  -- , defaultSentencePersistenceBinFile
+  -- , defaultSentencePersistenceIdxFile
+  -- , defaultDictionaryBinFile
   ) where
 
 import qualified External.Types as Ext
@@ -34,17 +33,11 @@ newtype (MonadAsyncException m, MonadIO m) => AppT m a = AppT
   { runApp :: ReaderT AppEnv m a }
   deriving ( Functor, Applicative, Monad, MonadReader AppEnv, MonadIO, MonadException, MonadAsyncException )
 
-class (MonadIO m, MonadAsyncException m) => HasMutex m where
-  getMutex :: m (MVar ())
-
-instance (MonadAsyncException m) => HasMutex (AppT m) where
-  getMutex = asks $ dEMutex . aEDictionaryEnv 
-
-withMutex :: (MonadAsyncException m, HasMutex m) => m b -> m b
-withMutex go = bracket_ acquireMutex releaseMutex go
+withMutex :: (MonadAsyncException m) => MVar () -> m b -> m b
+withMutex mutex go = bracket_ (acquireMutex mutex) (releaseMutex mutex) go
   where
-    acquireMutex = getMutex >>= liftIO . takeMVar 
-    releaseMutex = getMutex >>= liftIO . flip putMVar ()
+    acquireMutex = liftIO . takeMVar 
+    releaseMutex = liftIO . flip putMVar ()
 
 -- TODO: pool open bin file handles in HasDictionary Monad
 withFile
@@ -75,7 +68,8 @@ data SentencePersistenceEnv = SentencePersistenceEnv
   { spEBinFile :: String
   , spEIdxFile :: String
   , spEBinFileHandle :: Handle
-  , spEBIdxFileHandle :: Handle
+  , spEIdxFileHandle :: Handle
+  , spEMutex :: MVar ()
   }
 
 defaultSentencePersistenceBinFile = "sentences.bin" :: String
@@ -90,6 +84,7 @@ newSentencePersistenceEnv = (SentencePersistenceEnv
   defaultSentencePersistenceIdxFile)
   <$> openBinaryFile defaultSentencePersistenceBinFile WriteMode
   <*> openBinaryFile defaultSentencePersistenceIdxFile WriteMode
+  <*> newMVar ()
 
 defaultDictionaryBinFile = "dictionary.bin" :: String
 
