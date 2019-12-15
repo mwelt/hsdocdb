@@ -1,7 +1,8 @@
 { mkDerivation, aeson, async-pool, base, binary, bytestring
-, connection, containers, directory, http-client, lens, lens-aeson
-, mtl, say, stdenv, string-conversions, text, transformers
-, unordered-containers, vector, xeno, yaml, zlib
+, connection, containers, directory, exception-transformers
+, http-client, lens, lens-aeson, mtl, say, stdenv
+, string-conversions, text, transformers, unordered-containers
+, vector, xeno, yaml, zlib
 }:
 mkDerivation {
   pname = "hsrelex-docdb";
@@ -11,8 +12,9 @@ mkDerivation {
   isExecutable = true;
   executableHaskellDepends = [
     aeson async-pool base binary bytestring connection containers
-    directory http-client lens lens-aeson mtl say string-conversions
-    text transformers unordered-containers vector xeno yaml zlib
+    directory exception-transformers http-client lens lens-aeson mtl
+    say string-conversions text transformers unordered-containers
+    vector xeno yaml zlib
   ];
   license = "unknown";
   hydraPlatforms = stdenv.lib.platforms.none;

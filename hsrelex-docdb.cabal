@@ -27,6 +27,7 @@ executable hsrelex-docdb-exe
     , directory
     , xeno 
     , mtl
+    , exception-transformers
     , say
     , string-conversions
     , transformers
