@@ -4,21 +4,22 @@
 
 import Dictionary
 import Types
+import qualified SentencePersistence as SP
 import qualified External.Types as Ext
 import qualified Internal.Types as Int 
+
 import Control.Exception 
-import Control.Monad.Reader
-import Data.Maybe
-import System.IO
-import qualified Network.HTTP.Client as HTTP
-import Data.Aeson as JSON
-import qualified Data.Vector as V 
 import Control.Lens ((^..), (^?))
+import Data.Maybe
+import Control.Monad.Reader
+
+import Data.Aeson as JSON
 import Data.Aeson.Lens (key, values, _String)
-import qualified Data.ByteString as SBS
 import qualified Data.ByteString.Lazy as LBS
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as TE
+
+import qualified Network.HTTP.Client as HTTP
+
+import System.IO
 
 -- http://hackage.haskell.org/package/containers-0.6.2.1/docs/Data-Sequence.html#v:cycleTaking
 
@@ -28,16 +29,36 @@ fromMaybe' e _ = Left e
                 
 main :: IO ()
 main = do
-  de <- newDictionaryEnv
-  runReaderT (runApp runMe) de 
+  appEnv <- newAppEnv
+  runReaderT (runApp sentenceEquality) appEnv 
 
-runMe :: AppT IO ()
-runMe = do
-  ed <- liftIO $ do
+tokenizeDocument :: MonadIO m => String -> AppT m (Either String Ext.Document) 
+tokenizeDocument fileName = do 
+  liftIO $ do
     m <- HTTP.newManager HTTP.defaultManagerSettings
-    txt <- sampleData
+    txt <- LBS.readFile fileName 
     tokenize m txt
-  case ed of
+
+sentenceEquality :: AppT IO ()
+sentenceEquality = do
+  eitherDoc <- tokenizeDocument sampleData 
+  case eitherDoc of
+    Left e -> liftIO $ putStrLn $ "Error: " ++ (show e)
+    Right d -> go d
+
+  where
+    go doc = do
+      -- translate
+      d' <- translateDocument doc
+      sentenceIds <- mapM SP.append d'
+      SP.close
+      Dictionary.close
+      liftIO $ mapM_ (putStrLn . show) sentenceIds 
+
+dictionaryEquality :: AppT IO ()
+dictionaryEquality = do
+  eitherDoc <- tokenizeDocument sampleData
+  case eitherDoc of
     Left e -> liftIO $ putStrLn $ "Error: " ++ (show e)
     Right d -> do 
       -- translate and print document
@@ -45,8 +66,7 @@ runMe = do
       liftIO $ putStrLn . show $ d'
 
       -- close the file
-      handle <- binFileHandle 
-      liftIO $ hClose handle
+      Dictionary.close
 
       -- get the current dictionaries
       int2ext <- getDictionaryInt2Ext
@@ -73,8 +93,7 @@ translateDocument = mapM translateSentence
     translateSentence :: Ext.Sentence -> AppT IO Int.Sentence
     translateSentence s = mapM addToken s
 
-sampleData :: IO LBS.ByteString 
-sampleData = LBS.readFile "sample.txt"
+sampleData = "sample.txt" :: String
 
 query :: HTTP.Manager -> LBS.ByteString -> IO (Either SomeException (HTTP.Response LBS.ByteString))
 query m d = do
@@ -106,3 +125,6 @@ tokenize m d = do
 --       (Use FlexibleContexts to permit this)
 --     • When checking the inferred type
 --         it :: forall b. CanTranslate Text b => b
+
+
+-- >>> main
