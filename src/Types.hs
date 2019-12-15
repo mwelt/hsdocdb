@@ -7,7 +7,10 @@ module Types
   , SentencePersistenceEnv (..)
   , HasMutex (..)
   , withMutex
+  , Types.withFile
   , newDictionaryEnv
+  , newSentencePersistenceEnv
+  , newAppEnv
   , defaultSentencePersistenceBinFile
   , defaultSentencePersistenceIdxFile
   , defaultDictionaryBinFile
@@ -42,6 +45,17 @@ withMutex go = bracket_ acquireMutex releaseMutex go
   where
     acquireMutex = getMutex >>= liftIO . takeMVar 
     releaseMutex = getMutex >>= liftIO . flip putMVar ()
+
+-- TODO: pool open bin file handles in HasDictionary Monad
+withFile
+  :: (MonadAsyncException m, MonadIO m)
+  => String
+  -> IOMode
+  -> (Handle -> m b) -> m b
+withFile fileName ioMode go
+  = bracket (openFile' fileName ioMode) (liftIO . hClose) go
+  where
+    openFile' fileName ioMode = liftIO $ openBinaryFile fileName ioMode
 
 data AppEnv = AppEnv
   { aEDictionaryEnv :: DictionaryEnv
@@ -83,5 +97,7 @@ newDictionaryEnv = (DictionaryEnv defaultDictionaryBinFile)
   <$> newMVar HM.empty
   <*> newMVar IM.empty
   <*> newMVar 0 
-  <*> openBinaryFile defaultDictionaryBinFile AppendMode 
+  <*> openBinaryFile defaultDictionaryBinFile WriteMode 
   <*> newMVar ()
+
+newAppEnv = AppEnv <$> newDictionaryEnv <*> newSentencePersistenceEnv
