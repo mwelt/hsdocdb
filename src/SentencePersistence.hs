@@ -84,12 +84,7 @@ get sId = do
   liftIO $ Types.withFile binFile ReadMode (go filePos) 
 
   where
-    go filePos binFileH = do
-      
-      hSetBinaryMode binFileH True
-
-      lbs <- liftIO $ do
-        hSeek binFileH AbsoluteSeek (fromIntegral filePos)
-        LBS.hGetContents binFileH
-
-      pure $ BG.runGet Int.getSentence lbs
+    go filePos binFileH = liftIO $ do 
+      hSeek binFileH AbsoluteSeek (fromIntegral filePos)
+      lbs <- LBS.hGetContents binFileH
+      pure $! BG.runGet Int.getSentence lbs  
