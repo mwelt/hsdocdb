@@ -3,6 +3,7 @@ module Internal.Types
     Token,
     Sentence,
     Document,
+    SentenceId,
     putToken,
     putSentence,
     getToken,
@@ -19,6 +20,8 @@ import Data.Word
 type Token = Word32
 type Sentence = [Token]
 type Document = [Sentence]
+
+type SentenceId = Word32 
 
 putToken :: Token -> Put 
 putToken = putWord32host

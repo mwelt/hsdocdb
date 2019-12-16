@@ -21,29 +21,28 @@ import Data.Word
 import System.IO
 
 -- TODO: Word32 will give us only 4GB of index file size!
-type SentenceId = Word32 
 type FilePosition = Word32 
 
 class (Monad m, MonadIO m) => HasSentencePersistence m where
   getBinFile :: m String
   getBinFileHandle :: m Handle
-  getSentenceId :: FilePosition -> m SentenceId 
-  getFilePosition :: SentenceId -> m FilePosition
+  getInt.SentenceId :: FilePosition -> m Int.SentenceId 
+  getFilePosition :: Int.SentenceId -> m FilePosition
 
   getIdxFileHandle :: m Handle
   getIdxFile :: m String
-  getCurrentSentenceId :: m SentenceId
+  getCurrentInt.SentenceId :: m Int.SentenceId
   getMutex :: m (MVar ())
   close :: m ()
 
 instance MonadIO m => HasSentencePersistence (AppT m) where
   getBinFileHandle = asks (spEBinFileHandle . aESentencePersistenceEnv)
   getBinFile = asks (spEBinFile . aESentencePersistenceEnv)
-  getSentenceId fp = pure fp 
+  getInt.SentenceId fp = pure fp 
   getFilePosition sId = pure sId
   getIdxFileHandle = asks (spEIdxFileHandle . aESentencePersistenceEnv)
   getIdxFile = asks (spEIdxFile . aESentencePersistenceEnv)
-  getCurrentSentenceId = pure 0 
+  getCurrentInt.SentenceId = pure 0 
   getMutex = asks (spEMutex . aESentencePersistenceEnv)
   close = do
     getBinFileHandle >>= liftIO . hClose
@@ -52,7 +51,7 @@ instance MonadIO m => HasSentencePersistence (AppT m) where
 append
   :: (MonadAsyncException m, HasSentencePersistence m)
   => Int.Sentence
-  -> m SentenceId
+  -> m Int.SentenceId
 append sentence = getMutex >>= flip withMutex (go sentence) 
 
   where
@@ -72,12 +71,12 @@ append sentence = getMutex >>= flip withMutex (go sentence)
 
         pure offset 
 
-      getSentenceId (fromIntegral offset)
+      getInt.SentenceId (fromIntegral offset)
 
     putIdxFileEntry = BP.putWord32host . fromIntegral 
       
 
-get :: HasSentencePersistence m => SentenceId -> m Int.Sentence
+get :: HasSentencePersistence m => Int.SentenceId -> m Int.Sentence
 get sId = do
   filePos <- getFilePosition sId
   binFile <- getBinFile
