@@ -53,7 +53,10 @@ sentenceEquality = do
       sentenceIds <- mapM SP.append d'
       SP.close
       Dictionary.close
-      liftIO $ mapM_ (putStrLn . show) sentenceIds 
+      --liftIO $ mapM_ (putStrLn . show) sentenceIds 
+      mapM_ (SP.get >=> translateSentence' >=> liftIO . putStrLn . show)
+        $ take 10 sentenceIds
+  
 
 dictionaryEquality :: AppT IO ()
 dictionaryEquality = do
@@ -82,16 +85,14 @@ dictionaryEquality = do
       liftIO $ putStrLn . show $ d == d''
 
 translateDocument' :: Int.Document -> AppT IO Ext.Document
-translateDocument' = mapM translateSentence
-  where
-    translateSentence :: Int.Sentence -> AppT IO Ext.Sentence 
-    translateSentence s = catMaybes <$> mapM translate s 
+translateDocument' = mapM translateSentence'
+translateSentence' :: Int.Sentence -> AppT IO Ext.Sentence 
+translateSentence' s = catMaybes <$> mapM translate s 
 
 translateDocument :: Ext.Document -> AppT IO Int.Document
 translateDocument = mapM translateSentence
-  where
-    translateSentence :: Ext.Sentence -> AppT IO Int.Sentence
-    translateSentence s = mapM addToken s
+translateSentence :: Ext.Sentence -> AppT IO Int.Sentence
+translateSentence s = mapM addToken s
 
 sampleData = "sample.txt" :: String
 
