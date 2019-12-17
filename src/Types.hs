@@ -5,6 +5,7 @@ module Types
   , AppEnv (..)
   , DictionaryEnv (..)
   , SentencePersistenceEnv (..)
+  , InvertedIndexEnv (..)
   , withMutex
   , Types.withFile
   , newDictionaryEnv
@@ -25,6 +26,7 @@ import Control.Monad.Exception
 
 import qualified Data.HashMap.Strict as HM
 import qualified Data.IntMap.Strict as IM
+import qualified Data.IntSet as IS
 import Data.Word
 
 import System.IO 
@@ -53,6 +55,7 @@ withFile fileName ioMode go
 data AppEnv = AppEnv
   { aEDictionaryEnv :: DictionaryEnv
   , aESentencePersistenceEnv :: SentencePersistenceEnv
+  , aEInvertedIndexEnv :: InvertedIndexEnv
   }
 
 data DictionaryEnv = DictionaryEnv
@@ -70,6 +73,11 @@ data SentencePersistenceEnv = SentencePersistenceEnv
   , spEBinFileHandle :: Handle
   , spEIdxFileHandle :: Handle
   , spEMutex :: MVar ()
+  }
+
+data InvertedIndexEnv = InvertedIndexEnv
+  { iiEInvertedIndex :: MVar (IM.IntMap IS.IntSet)
+  , iiEMutex :: MVar ()
   }
 
 defaultSentencePersistenceBinFile = "sentences.bin" :: String
@@ -95,4 +103,11 @@ newDictionaryEnv = (DictionaryEnv defaultDictionaryBinFile)
   <*> openBinaryFile defaultDictionaryBinFile WriteMode 
   <*> newMVar ()
 
-newAppEnv = AppEnv <$> newDictionaryEnv <*> newSentencePersistenceEnv
+newInvertedIndexEnv = InvertedIndexEnv
+  <$> newMVar IM.empty
+  <*> newMVar ()
+
+newAppEnv = AppEnv
+  <$> newDictionaryEnv
+  <*> newSentencePersistenceEnv
+  <*> newInvertedIndexEnv

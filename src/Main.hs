@@ -4,18 +4,21 @@
 
 import Dictionary
 import Types
+import qualified InvertedIndex as II
 import qualified SentencePersistence as SP
 import qualified External.Types as Ext
 import qualified Internal.Types as Int 
 
 import Control.Exception 
 import Control.Lens ((^..), (^?))
-import Data.Maybe
 import Control.Monad.Reader
 
 import Data.Aeson as JSON
 import Data.Aeson.Lens (key, values, _String)
 import qualified Data.ByteString.Lazy as LBS
+import qualified Data.IntMap.Strict as IM
+import qualified Data.IntSet as IS
+import Data.Maybe
 
 import qualified Network.HTTP.Client as HTTP
 
@@ -30,7 +33,7 @@ fromMaybe' e _ = Left e
 main :: IO ()
 main = do
   appEnv <- newAppEnv
-  runReaderT (runApp sentenceEquality) appEnv 
+  runReaderT (runApp invertedIndexTest) appEnv 
 
 tokenizeDocument :: MonadIO m => String -> AppT m (Either String Ext.Document) 
 tokenizeDocument fileName = do 
@@ -38,6 +41,44 @@ tokenizeDocument fileName = do
     m <- HTTP.newManager HTTP.defaultManagerSettings
     txt <- LBS.readFile fileName 
     tokenize m txt
+
+invertedIndexTest :: AppT IO ()
+invertedIndexTest = do
+  eitherDoc <- tokenizeDocument sampleData 
+  case eitherDoc of
+    Left e -> liftIO $ putStrLn $ "Error: " ++ (show e)
+    Right d -> go d
+
+  where
+
+    go :: Ext.Document -> AppT IO ()
+    go doc = do
+      d' <- mapM translateSentence'' doc
+      SP.close
+      int2ext <- getDictionaryInt2Ext 
+      let keys = IM.keys int2ext
+      mapM_ printInvertedIndex $ take 4 keys
+      pure ()
+
+    printInvertedIndex :: Int -> AppT IO ()
+    printInvertedIndex t = do
+      let t' = fromIntegral t :: Int.Token
+      mt'' <- (translate t') :: AppT IO (Maybe Ext.Token)
+      liftIO $ do
+        putStr . show $ mt''
+        putStr ": "
+      sIds <- IS.toList <$> II.get t'
+      sentences <- mapM (SP.get . fromIntegral) sIds
+      sentences' <- mapM translateSentence' sentences
+      liftIO $ mapM_ (putStrLn . show) sentences'
+    
+    translateSentence'' :: Ext.Sentence -> AppT IO Int.Sentence
+    translateSentence'' ss = do
+      ss' <- mapM addToken ss 
+      sId <- SP.append ss'
+      II.put sId ss'
+      pure ss'
+  
 
 sentenceEquality :: AppT IO ()
 sentenceEquality = do
@@ -84,11 +125,13 @@ dictionaryEquality = do
       d'' <- translateDocument' d'  
       liftIO $ putStrLn . show $ d == d''
 
+-- TODO move to CanTranslate type class
 translateDocument' :: Int.Document -> AppT IO Ext.Document
 translateDocument' = mapM translateSentence'
 translateSentence' :: Int.Sentence -> AppT IO Ext.Sentence 
 translateSentence' s = catMaybes <$> mapM translate s 
 
+-- TODO move to CanTranslate type class
 translateDocument :: Ext.Document -> AppT IO Int.Document
 translateDocument = mapM translateSentence
 translateSentence :: Ext.Sentence -> AppT IO Int.Sentence
