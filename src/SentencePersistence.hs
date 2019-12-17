@@ -26,23 +26,23 @@ type FilePosition = Word32
 class (Monad m, MonadIO m) => HasSentencePersistence m where
   getBinFile :: m String
   getBinFileHandle :: m Handle
-  getInt.SentenceId :: FilePosition -> m Int.SentenceId 
+  getSentenceId :: FilePosition -> m Int.SentenceId 
   getFilePosition :: Int.SentenceId -> m FilePosition
 
   getIdxFileHandle :: m Handle
   getIdxFile :: m String
-  getCurrentInt.SentenceId :: m Int.SentenceId
+  getCurrentSentenceId :: m Int.SentenceId
   getMutex :: m (MVar ())
   close :: m ()
 
 instance MonadIO m => HasSentencePersistence (AppT m) where
   getBinFileHandle = asks (spEBinFileHandle . aESentencePersistenceEnv)
   getBinFile = asks (spEBinFile . aESentencePersistenceEnv)
-  getInt.SentenceId fp = pure fp 
+  getSentenceId fp = pure fp 
   getFilePosition sId = pure sId
   getIdxFileHandle = asks (spEIdxFileHandle . aESentencePersistenceEnv)
   getIdxFile = asks (spEIdxFile . aESentencePersistenceEnv)
-  getCurrentInt.SentenceId = pure 0 
+  getCurrentSentenceId = pure 0 
   getMutex = asks (spEMutex . aESentencePersistenceEnv)
   close = do
     getBinFileHandle >>= liftIO . hClose
@@ -55,6 +55,7 @@ append
 append sentence = getMutex >>= flip withMutex (go sentence) 
 
   where
+
     go sentence = do
 
       binFileH <- getBinFileHandle   
@@ -70,8 +71,8 @@ append sentence = getMutex >>= flip withMutex (go sentence)
         LBS.hPut idxFileH idxFileEntry
 
         pure offset 
-
-      getInt.SentenceId (fromIntegral offset)
+    
+      getSentenceId (fromIntegral offset)
 
     putIdxFileEntry = BP.putWord32host . fromIntegral 
       
