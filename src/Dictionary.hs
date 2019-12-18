@@ -6,6 +6,8 @@ module Dictionary
   ( CanTranslate (..)
   , HasDictionary (..)
   , addToken
+  , addSentence
+  , addDocument
   , fromPersistence
   )
 where
@@ -48,6 +50,9 @@ class (Monad m, MonadIO m) => HasDictionary m where
   getMutex :: m (MVar ())
   close :: m ()
 
+-- translate* only translates it doesn't add new values, since
+-- adding new values requires a mutex on dictionary read and the
+-- additional FileIO.
 class CanTranslate a b where
   translateToken :: (HasDictionary m) => a -> m (Maybe b)
   translateSentence :: (HasDictionary m) => [a] -> m [b]
@@ -106,7 +111,14 @@ addToken extToken = getMutex >>= flip withMutex (go extToken)
       BP.putWord32host . fromIntegral $ idx
       BP.putWord16host . fromIntegral $ BS.length bsToken
       BP.putByteString bsToken
-      
+
+-- for convenience
+addSentence :: (MonadAsyncException m, HasDictionary m) => Ext.Sentence -> m Int.Sentence  
+addSentence = mapM addToken
+
+addDocument :: (MonadAsyncException m, HasDictionary m) => Ext.Document -> m Int.Document  
+addDocument = mapM addSentence
+
 fromPersistence :: (MonadAsyncException m, HasDictionary m) => m ()  
 fromPersistence = getBinFile >>= \f -> Types.withFile f ReadMode go
 
