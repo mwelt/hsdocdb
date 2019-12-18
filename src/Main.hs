@@ -53,7 +53,7 @@ invertedIndexTest = do
 
     go :: Ext.Document -> AppT IO ()
     go doc = do
-      d' <- mapM translateSentence'' doc
+      d' <- mapM addSentence doc
       SP.close
       int2ext <- getDictionaryInt2Ext 
       let keys = IM.keys int2ext
@@ -63,17 +63,17 @@ invertedIndexTest = do
     printInvertedIndex :: Int -> AppT IO ()
     printInvertedIndex t = do
       let t' = fromIntegral t :: Int.Token
-      mt'' <- (translate t') :: AppT IO (Maybe Ext.Token)
+      mt'' <- (translateToken t') :: AppT IO (Maybe Ext.Token)
       liftIO $ do
         putStr . show $ mt''
         putStr ": "
       sIds <- IS.toList <$> II.get t'
       sentences <- mapM (SP.get . fromIntegral) sIds
-      sentences' <- mapM translateSentence' sentences
+      sentences' <- mapM translateSentence sentences :: AppT IO Ext.Document 
       liftIO $ mapM_ (putStrLn . show) sentences'
     
-    translateSentence'' :: Ext.Sentence -> AppT IO Int.Sentence
-    translateSentence'' ss = do
+    addSentence :: Ext.Sentence -> AppT IO Int.Sentence
+    addSentence ss = do
       ss' <- mapM addToken ss 
       sId <- SP.append ss'
       II.put sId ss'
@@ -88,14 +88,17 @@ sentenceEquality = do
     Right d -> go d
 
   where
+    go :: Ext.Document -> AppT IO () 
     go doc = do
       -- translate
-      d' <- translateDocument doc
+      d' <- translateDocument doc 
       sentenceIds <- mapM SP.append d'
       SP.close
       Dictionary.close
       --liftIO $ mapM_ (putStrLn . show) sentenceIds 
-      mapM_ (SP.get >=> translateSentence' >=> liftIO . putStrLn . show)
+      mapM_ (SP.get
+             >=> (translateSentence :: Int.Sentence -> AppT IO Ext.Sentence)
+             >=> liftIO . putStrLn . show)
         $ take 10 sentenceIds
   
 
@@ -106,7 +109,7 @@ dictionaryEquality = do
     Left e -> liftIO $ putStrLn $ "Error: " ++ (show e)
     Right d -> do 
       -- translate and print document
-      d' <- translateDocument d
+      d' <- (translateDocument :: Ext.Document -> AppT IO Int.Document) d
       liftIO $ putStrLn . show $ d'
 
       -- close the file
@@ -122,20 +125,8 @@ dictionaryEquality = do
       -- ext2int' <- getDictionaryExt2Int
 
       -- translate the document back
-      d'' <- translateDocument' d'  
+      d'' <- translateDocument d'  
       liftIO $ putStrLn . show $ d == d''
-
--- TODO move to CanTranslate type class
-translateDocument' :: Int.Document -> AppT IO Ext.Document
-translateDocument' = mapM translateSentence'
-translateSentence' :: Int.Sentence -> AppT IO Ext.Sentence 
-translateSentence' s = catMaybes <$> mapM translate s 
-
--- TODO move to CanTranslate type class
-translateDocument :: Ext.Document -> AppT IO Int.Document
-translateDocument = mapM translateSentence
-translateSentence :: Ext.Sentence -> AppT IO Int.Sentence
-translateSentence s = mapM addToken s
 
 sampleData = "sample.txt" :: String
 
@@ -160,15 +151,3 @@ tokenize m d = do
      parseValue v = map
                     (\v' -> v' ^.. key "tokens" . values . key "word" . _String) $
                     v ^.. key "sentences" . values  
-
-
-
--- >>> translate (T.pack "Hello") 
--- <interactive>:3775:2-27: error:
---     • Non type-variable argument in the constraint: CanTranslate Text b
---       (Use FlexibleContexts to permit this)
---     • When checking the inferred type
---         it :: forall b. CanTranslate Text b => b
-
-
--- >>> main

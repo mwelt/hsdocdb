@@ -49,18 +49,18 @@ class (Monad m, MonadIO m) => HasDictionary m where
   close :: m ()
 
 class CanTranslate a b where
-  translate :: (HasDictionary m) => a -> m (Maybe b)
+  translateToken :: (HasDictionary m) => a -> m (Maybe b)
   translateSentence :: (HasDictionary m) => [a] -> m [b]
   translateDocument :: (HasDictionary m) => [[a]] -> m [[b]]
 
 instance CanTranslate Ext.Token Int.Token where
-  translate t = getDictionaryExt2Int >>= pure . (HM.lookup t)
-  translateSentence s = catMaybes <$> mapM translate s
+  translateToken t = getDictionaryExt2Int >>= pure . (HM.lookup t)
+  translateSentence s = catMaybes <$> mapM translateToken s
   translateDocument = mapM translateSentence
 
 instance CanTranslate Int.Token Ext.Token where
-  translate t = getDictionaryInt2Ext >>= pure . (IM.lookup . fromIntegral $ t)
-  translateSentence s = catMaybes <$> mapM translate s
+  translateToken t = getDictionaryInt2Ext >>= pure . (IM.lookup . fromIntegral $ t)
+  translateSentence s = catMaybes <$> mapM translateToken s
   translateDocument = mapM translateSentence
 
 instance MonadIO m => HasDictionary (AppT m) where
@@ -86,7 +86,7 @@ addToken extToken = getMutex >>= flip withMutex (go extToken)
   where
     go extToken = do
       binFileH <- getBinFileHandle
-      intToken <- translate extToken 
+      intToken <- translateToken extToken 
       case intToken of
         Just n -> pure n 
         Nothing -> do
