@@ -27,6 +27,7 @@ import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString as BS
 import qualified Data.HashMap.Strict as HM
 import qualified Data.IntMap.Strict as IM
+import Data.Maybe
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Data.Word
@@ -49,12 +50,18 @@ class (Monad m, MonadIO m) => HasDictionary m where
 
 class CanTranslate a b where
   translate :: (HasDictionary m) => a -> m (Maybe b)
+  translateSentence :: (HasDictionary m) => [a] -> m [b]
+  translateDocument :: (HasDictionary m) => [[a]] -> m [[b]]
 
 instance CanTranslate Ext.Token Int.Token where
   translate t = getDictionaryExt2Int >>= pure . (HM.lookup t)
+  translateSentence s = catMaybes <$> mapM translate s
+  translateDocument = mapM translateSentence
 
 instance CanTranslate Int.Token Ext.Token where
   translate t = getDictionaryInt2Ext >>= pure . (IM.lookup . fromIntegral $ t)
+  translateSentence s = catMaybes <$> mapM translate s
+  translateDocument = mapM translateSentence
 
 instance MonadIO m => HasDictionary (AppT m) where
   getDictionaryExt2Int = asks (dEDictionaryExt2Int . aEDictionaryEnv)
