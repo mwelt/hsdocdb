@@ -6,6 +6,7 @@ module Types
   , DictionaryEnv (..)
   , SentencePersistenceEnv (..)
   , InvertedIndexEnv (..)
+  , StanfordTokenizerEnv (..)
   , withMutex
   , Types.withFile
   , newDictionaryEnv
@@ -29,11 +30,16 @@ import qualified Data.IntMap.Strict as IM
 import qualified Data.IntSet as IS
 import Data.Word
 
+import qualified Network.HTTP.Client as HTTP (Manager (..),
+                                              newManager,
+                                              defaultManagerSettings)
+
 import System.IO 
 
 newtype (MonadAsyncException m, MonadIO m) => AppT m a = AppT
   { runApp :: ReaderT AppEnv m a }
-  deriving ( Functor, Applicative, Monad, MonadReader AppEnv, MonadIO, MonadException, MonadAsyncException )
+  deriving ( Functor, Applicative, Monad, MonadReader AppEnv,
+             MonadIO, MonadException, MonadAsyncException )
 
 withMutex :: (MonadAsyncException m) => MVar () -> m b -> m b
 withMutex mutex go = bracket_ (acquireMutex mutex) (releaseMutex mutex) go
@@ -56,6 +62,7 @@ data AppEnv = AppEnv
   { aEDictionaryEnv :: DictionaryEnv
   , aESentencePersistenceEnv :: SentencePersistenceEnv
   , aEInvertedIndexEnv :: InvertedIndexEnv
+  , aEStanfordTokenizerEnv :: StanfordTokenizerEnv
   }
 
 data DictionaryEnv = DictionaryEnv
@@ -78,6 +85,11 @@ data SentencePersistenceEnv = SentencePersistenceEnv
 data InvertedIndexEnv = InvertedIndexEnv
   { iiEInvertedIndex :: MVar (IM.IntMap IS.IntSet)
   , iiEMutex :: MVar ()
+  }
+
+data StanfordTokenizerEnv = StanfordTokenizerEnv
+  { stEUrl :: String
+  , stEHttpManager :: HTTP.Manager
   }
 
 defaultSentencePersistenceBinFile = "sentences.bin" :: String
@@ -107,7 +119,14 @@ newInvertedIndexEnv = InvertedIndexEnv
   <$> newMVar IM.empty
   <*> newMVar ()
 
+defaultStanfordUrl =
+  "http://localhost:9000/?properties={\"annotators\":\"tokenize,ssplit\",\"outputFormat\":\"json\"}" :: String
+
+newStanfordTokenizerEnv = StanfordTokenizerEnv defaultStanfordUrl
+  <$> HTTP.newManager HTTP.defaultManagerSettings
+
 newAppEnv = AppEnv
   <$> newDictionaryEnv
   <*> newSentencePersistenceEnv
   <*> newInvertedIndexEnv
+  <*> newStanfordTokenizerEnv

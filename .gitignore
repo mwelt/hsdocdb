@@ -13,4 +13,5 @@ sync.sh
 dictionary.bin
 sentences.bin
 sentences.idx
+data/
 

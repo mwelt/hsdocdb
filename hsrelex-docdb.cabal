@@ -25,7 +25,7 @@ executable hsrelex-docdb-exe
     , unordered-containers
     , containers
     , directory
-    , xeno 
+    , hexpat
     , mtl
     , exception-transformers
     , say
