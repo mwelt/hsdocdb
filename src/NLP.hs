@@ -1,8 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE UndecidableInstances #-}  
 
 module NLP
-  (
-    tokenizeDocument
+  ( tokenizeDocument
+  , tokenizeByteString 
   ) where
 
 import Types
@@ -25,27 +27,30 @@ class (Monad m, MonadIO m) => CanTokenize m where
   tokenizeDocument :: FilePath -> m Ext.Document
   tokenizeByteString :: LBS.ByteString -> m Ext.Document 
 
-class (Monad m, MonadIO m) => HasStanfordTokenzier m where
+class (Monad m, MonadIO m) => HasStanfordTokenizer m where
   getStanfordHttpManager :: m HTTP.Manager 
   getStanfordUrl :: m String
 
-instance (Monad m, MonadIO m) => HasStanfordTokenzier (AppT m) where
+instance (Monad m, MonadIO m) => HasStanfordTokenizer (AppT m) where
   getStanfordHttpManager = asks (stEHttpManager . aEStanfordTokenizerEnv) 
   getStanfordUrl = asks (stEUrl . aEStanfordTokenizerEnv)
   
-instance (Monad m, MonadIO m) => CanTokenize (AppT m) where
+-- instance (Monad m, MonadIO m) => CanTokenize (AppT m) where
+--   tokenizeDocument = tokenizeDocumentStanford
+--   tokenizeByteString = tokenizeByteStringStanford
+   
+instance (Monad m, MonadIO m, HasStanfordTokenizer m) => CanTokenize m where
   tokenizeDocument = tokenizeDocumentStanford
   tokenizeByteString = tokenizeByteStringStanford
-   
 
-tokenizeDocumentStanford :: (HasStanfordTokenzier m, MonadIO m) => FilePath -> m Ext.Document
+tokenizeDocumentStanford :: (HasStanfordTokenizer m, MonadIO m) => FilePath -> m Ext.Document
 tokenizeDocumentStanford fileName = do 
   lbs <- liftIO . LBS.readFile $ fileName 
   tokenizeByteStringStanford lbs 
 
 
 tokenizeByteStringStanford
-  :: (HasStanfordTokenzier m, MonadIO m) =>  LBS.ByteString -> m Ext.Document
+  :: (HasStanfordTokenizer m, MonadIO m) =>  LBS.ByteString -> m Ext.Document
 tokenizeByteStringStanford lbs = do 
  manager <- getStanfordHttpManager 
  url <- getStanfordUrl

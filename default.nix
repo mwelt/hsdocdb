@@ -2,7 +2,7 @@
 , connection, containers, directory, exception-transformers, hexpat
 , http-client, lens, lens-aeson, mtl, say, stdenv
 , string-conversions, text, transformers, unordered-containers
-, vector, yaml, zlib
+, utf8-string, vector, yaml, zlib
 }:
 mkDerivation {
   pname = "hsrelex-docdb";
@@ -14,7 +14,7 @@ mkDerivation {
     aeson async-pool base binary bytestring connection containers
     directory exception-transformers hexpat http-client lens lens-aeson
     mtl say string-conversions text transformers unordered-containers
-    vector yaml zlib
+    utf8-string vector yaml zlib
   ];
   license = "unknown";
   hydraPlatforms = stdenv.lib.platforms.none;

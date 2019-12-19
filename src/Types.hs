@@ -12,9 +12,9 @@ module Types
   , newDictionaryEnv
   , newSentencePersistenceEnv
   , newAppEnv
-  -- , defaultSentencePersistenceBinFile
-  -- , defaultSentencePersistenceIdxFile
-  -- , defaultDictionaryBinFile
+ , defaultSentencePersistenceBinFile
+ , defaultSentencePersistenceIdxFile
+ , defaultDictionaryBinFile
   ) where
 
 import qualified External.Types as Ext
@@ -103,7 +103,7 @@ newSentencePersistenceEnv = (SentencePersistenceEnv
   defaultSentencePersistenceBinFile
   defaultSentencePersistenceIdxFile)
   <$> openBinaryFile defaultSentencePersistenceBinFile WriteMode
-  <*> openBinaryFile defaultSentencePersistenceIdxFile WriteMode
+  <*> openBinaryFile defaultSentencePersistenceIdxFile AppendMode
   <*> newMVar ()
 
 defaultDictionaryBinFile = "dictionary.bin" :: String
@@ -112,7 +112,7 @@ newDictionaryEnv = (DictionaryEnv defaultDictionaryBinFile)
   <$> newMVar HM.empty
   <*> newMVar IM.empty
   <*> newMVar 0 
-  <*> openBinaryFile defaultDictionaryBinFile WriteMode 
+  <*> openBinaryFile defaultDictionaryBinFile AppendMode 
   <*> newMVar ()
 
 newInvertedIndexEnv = InvertedIndexEnv

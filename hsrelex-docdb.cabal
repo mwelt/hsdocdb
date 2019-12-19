@@ -19,6 +19,7 @@ executable hsrelex-docdb-exe
     , lens-aeson
     , async-pool
     , base >=4.7 && <5
+    , utf8-string
     , bytestring
     , binary
     , text

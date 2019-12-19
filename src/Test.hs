@@ -69,7 +69,7 @@ dictionaryEqualityTest = do
   d <- NLP.tokenizeDocument sampleData
 
   -- translate and print document
-  d' <- (D.translateDocument :: Ext.Document -> AppT IO Int.Document) d
+  d' <- D.addDocument d
   liftIO $ putStrLn . show $ d'
 
   -- close the file
