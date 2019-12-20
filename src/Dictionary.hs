@@ -97,7 +97,9 @@ addToken extToken = getMutex >>= flip withMutex (go extToken)
         Nothing -> do
           idx <- getCurrentIndex
           binFileH <- getBinFileHandle
-          liftIO $ (LBS.hPut binFileH) . BP.runPut $ putEntry idx extToken 
+          liftIO $ do
+            (LBS.hPut binFileH) . BP.runPut $ putEntry idx extToken 
+            hFlush binFileH
           IM.insert (fromIntegral idx) extToken <$> getDictionaryInt2Ext
             >>= setDictionaryInt2Ext
           HM.insert extToken idx <$> getDictionaryExt2Int

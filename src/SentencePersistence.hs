@@ -65,10 +65,12 @@ append sentence = getMutex >>= flip withMutex (go sentence)
         let binSentence = BP.runPut $ Int.putSentence sentence
         offset <- hTell binFileH
         LBS.hPut binFileH binSentence
+        hFlush binFileH
 
         -- currently only store offsets in idx file
         let idxFileEntry = BP.runPut $ putIdxFileEntry offset
         LBS.hPut idxFileH idxFileEntry
+        hFlush idxFileH
 
         pure offset 
     
