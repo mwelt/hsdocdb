@@ -17,7 +17,9 @@ import Control.Monad.Reader
 import Data.Aeson as JSON
 import Data.Aeson.Lens (key, values, _String)
 import qualified Data.ByteString.Lazy as LBS
+import qualified Data.ByteString as BS
 import Data.Maybe
+import qualified Data.Text.Encoding as TE
 
 import qualified Network.HTTP.Client as HTTP
 
@@ -25,7 +27,8 @@ import qualified Network.HTTP.Client as HTTP
 -- should be more defensive
 class (Monad m, MonadIO m) => CanTokenize m where
   tokenizeDocument :: FilePath -> m Ext.Document
-  tokenizeByteString :: LBS.ByteString -> m Ext.Document 
+  tokenizeByteString :: BS.ByteString -> m Ext.Document 
+  tokenizeLByteString :: LBS.ByteString -> m Ext.Document 
 
 class (Monad m, MonadIO m) => HasStanfordTokenizer m where
   getStanfordHttpManager :: m HTTP.Manager 
@@ -41,29 +44,42 @@ instance (Monad m, MonadIO m) => HasStanfordTokenizer (AppT m) where
    
 instance (Monad m, MonadIO m, HasStanfordTokenizer m) => CanTokenize m where
   tokenizeDocument = tokenizeDocumentStanford
+  tokenizeLByteString = tokenizeLByteStringStanford
   tokenizeByteString = tokenizeByteStringStanford
 
 tokenizeDocumentStanford :: (HasStanfordTokenizer m, MonadIO m) => FilePath -> m Ext.Document
 tokenizeDocumentStanford fileName = do 
   lbs <- liftIO . LBS.readFile $ fileName 
-  tokenizeByteStringStanford lbs 
-
+  tokenizeLByteStringStanford lbs 
 
 tokenizeByteStringStanford
+  :: (HasStanfordTokenizer m, MonadIO m) =>  BS.ByteString -> m Ext.Document
+tokenizeByteStringStanford = tokenizeLByteStringStanford . LBS.fromStrict
+
+tokenizeLByteStringStanford
   :: (HasStanfordTokenizer m, MonadIO m) =>  LBS.ByteString -> m Ext.Document
-tokenizeByteStringStanford lbs = do 
+tokenizeLByteStringStanford lbs = do 
  manager <- getStanfordHttpManager 
  url <- getStanfordUrl
  resp <- liftIO $ query url manager lbs 
- pure . parseResponse . HTTP.responseBody $ resp
+ let lbs = HTTP.responseBody resp
+ liftIO $ parseResponse lbs
    where
-     parseResponse r = case parseValue <$> (JSON.decode r :: Maybe Value) of
-       Nothing -> error "can not parse JSON"
-       Just x -> x
+     parseResponse :: LBS.ByteString -> IO Ext.Document
+     parseResponse r =
+       let bs = LBS.toStrict r;
+           jsonStr = TE.decodeUtf8 bs in 
+         case parseValue <$> (JSON.decodeStrict bs :: Maybe Value) of
+           Nothing -> do
+             putStrLn $ "can not parse JSON: " ++ (show jsonStr)
+             error "" 
+           Just x -> pure x
+
      parseValue v = map
                     (\v' -> v' ^.. key "tokens" . values . key "word" . _String) $
                     v ^.. key "sentences" . values  
 
+-- TODO: move to strict byte string in general
 query
   :: String
   -> HTTP.Manager

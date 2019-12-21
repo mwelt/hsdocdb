@@ -12,19 +12,23 @@ module Types
   , newDictionaryEnv
   , newSentencePersistenceEnv
   , newAppEnv
- , defaultSentencePersistenceBinFile
- , defaultSentencePersistenceIdxFile
- , defaultDictionaryBinFile
+  , ChanContent (..)
+  , MChan (..)
+  , defaultSentencePersistenceBinFile
+  , defaultSentencePersistenceIdxFile
+  , defaultDictionaryBinFile
   ) where
 
 import qualified External.Types as Ext
 import qualified Internal.Types as Int
 
+import qualified Control.Concurrent.Chan as C
 import Control.Concurrent.MVar
 import Control.Monad.IO.Class
 import Control.Monad.Reader
 import Control.Monad.Exception
 
+import qualified Data.ByteString.Lazy as LBS
 import qualified Data.HashMap.Strict as HM
 import qualified Data.IntMap.Strict as IM
 import qualified Data.IntSet as IS
@@ -58,11 +62,19 @@ withFile fileName ioMode go
   where
     openFile' fileName ioMode = liftIO $ openBinaryFile fileName ioMode
 
+data ChanContent a = ChanContent a | Poison
+  deriving (Show)
+type MChan a = C.Chan (ChanContent a)
+
 data AppEnv = AppEnv
-  { aEDictionaryEnv :: DictionaryEnv
+  { aENLPNThreads :: Int
+  , aENLPChunkLen :: Int
+  , aEDictionaryEnv :: DictionaryEnv
   , aESentencePersistenceEnv :: SentencePersistenceEnv
   , aEInvertedIndexEnv :: InvertedIndexEnv
   , aEStanfordTokenizerEnv :: StanfordTokenizerEnv
+  , aENLPInputChannel :: MChan FilePath 
+  , aENLPOutputChannel :: MChan Ext.Document
   }
 
 data DictionaryEnv = DictionaryEnv
@@ -125,8 +137,13 @@ defaultStanfordUrl =
 newStanfordTokenizerEnv = StanfordTokenizerEnv defaultStanfordUrl
   <$> HTTP.newManager HTTP.defaultManagerSettings
 
-newAppEnv = AppEnv
+defaultNLPNThreads = 3 :: Int
+defaultNLPChunkLen = 8 :: Int
+
+newAppEnv = (AppEnv defaultNLPNThreads defaultNLPChunkLen)
   <$> newDictionaryEnv
   <*> newSentencePersistenceEnv
   <*> newInvertedIndexEnv
   <*> newStanfordTokenizerEnv
+  <*> C.newChan
+  <*> C.newChan 
