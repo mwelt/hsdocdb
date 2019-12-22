@@ -20,7 +20,7 @@ executable hsrelex-docdb-exe
       Types
   hs-source-dirs:
       src 
-  ghc-options: -threaded -rtsopts -prof -fprof-auto "-with-rtsopts=-N -p -s -h"
+  ghc-options: -O2 -threaded -rtsopts -prof -fprof-auto "-with-rtsopts=-N -p -s -h"
   build-depends:
       aeson
     , lens

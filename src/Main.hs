@@ -13,13 +13,13 @@ import qualified NLP
 import Control.Monad.Reader
 import Control.Exception
 import Control.Concurrent 
-import qualified Control.Concurrent.Chan as C
 import Control.Concurrent.MVar
 
 import Data.List
 import Data.List.Split
 import qualified Data.ByteString.Lazy.UTF8 as BLU
 import qualified Data.ByteString.Lazy as LBS
+import qualified Data.ByteString as BS
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
@@ -32,26 +32,34 @@ import System.IO.Error hiding (catch)
 -- http://hackage.haskell.org/package/containers-0.6.2.1/docs/Data-Sequence.html#v:cycleTaking
 
 runQueueBasedWorker
-  :: AppEnv
+  :: (Show a)
+  => AppEnv
   -> (a -> AppT IO ())
-  -> MChan a
+  -> MVar (Maybe a)
   -> MVar ()
   -> IO ThreadId 
-runQueueBasedWorker env fn channel mutex = forkIO $
-  runReaderT (runApp (go channel mutex fn)) env
+runQueueBasedWorker env fn queue mutex = forkIO $
+  runReaderT (runApp (go queue mutex fn)) env
 
   where
-    go :: MChan a -> MVar () -> (a -> AppT IO ()) -> AppT IO ()
-    go channel mutex fn = do
-      liftIO . takeMVar $ mutex
-      loop channel mutex fn
+    go :: (Show a) => MVar (Maybe a) -> MVar () -> (a -> AppT IO ()) -> AppT IO ()
+    go queue mutex fn = do
+      liftIO $ do
+        takeMVar $ mutex
+        putStrLn "thread locked"
+      loop queue mutex fn
 
-    loop :: MChan a -> MVar () -> (a -> AppT IO ()) -> AppT IO () 
-    loop channel mutex fn = do
-      x <- liftIO . readChan $ channel
+    loop :: (Show a) => MVar (Maybe a) -> MVar () -> (a -> AppT IO ()) -> AppT IO () 
+    loop queue mutex fn = do
+      x <- liftIO . takeMVar $ queue 
       case x of
-        ChanContent x' -> fn x' >> loop channel mutex fn
-        Poison -> liftIO $ putMVar mutex ()
+        Just x' -> fn x' >> loop queue mutex fn
+        Nothing -> liftIO $ do
+          -- inform other possible working threads
+          putMVar queue Nothing
+          -- unlock the thread is running mutex and stop
+          putStrLn "unlocking thread"
+          putMVar mutex ()
         
 
 main :: IO ()
@@ -64,66 +72,69 @@ main = do
   consumerMutex <- newMVar ()
   processMutex <- replicateM nlpNThreads $ newMVar ()
 
+  -- start producer thread
+  producingThread <- producing env "data2/" ".abstr"
+  putStrLn $ "started producing thread " ++ (show producingThread)
+
   -- start worker threads
   processingThreads <-
     mapM (runQueueBasedWorker env processingNLP c1) processMutex
   putStrLn $ "started processing threads " ++ (show processingThreads)
 
-  -- start single final consumer thread
+  -- -- start single final consumer thread
   consumingThread <- runQueueBasedWorker env consuming c2 consumerMutex
   putStrLn $ "started consuming thread " ++ (show consumingThread)
-
-  -- start producer thread
-  producingThread <- producing env "data2/" ".abstr"
-  putStrLn $ "started producing thread " ++ (show producingThread)
 
   -- wait for processing threads to be poisoned out 
   mapM_ takeMVar processMutex 
   -- poison the consumer queue
-  writeChan c2 Poison
+  putMVar c2 Nothing 
   -- wait for the consumer to terminate
   takeMVar consumerMutex
 
   close env
 
   where
-    close env = do
-      runReaderT (runApp close') env
 
-    close' = do
-      D.close
-      SP.close
+    producing
+      :: AppEnv
+      -> FilePath
+      -> String
+      -> IO ThreadId 
+    producing env path fileEnding =
+      forkIO $ runReaderT (runApp (go path fileEnding)) env
+
+    go :: FilePath -> String -> AppT IO ()
+    go path fileEnding = do
+      files <- liftIO $ listDirectory path 
+      let files' = map ((++) path) $ filter (isSuffixOf fileEnding) files
+      out <- asks aENLPInputChannel
+      bss <- concat <$> mapM importFile files'
+      liftIO $ do
+        mapM_ ((putMVar out) . Just) bss 
+        putMVar out Nothing
       
-    processingNLP :: FilePath -> AppT IO ()
-    processingNLP fp = do
-      liftIO . putStrLn $ "processing file " ++ fp
-      chunkedLines <- importFile fp
-      outChan <- asks aENLPOutputChannel
-      mapM_ (processChunk outChan) chunkedLines
+      -- nThreads <- asks aENLPNThreads
+      -- liftIO $ replicateM_ nThreads $ writeChan outChan Poison
 
-    processChunk :: MChan Ext.Document -> [T.Text] -> AppT IO ()
-    processChunk outChan chunk = do
-      extDoc <- NLP.tokenizeByteString . TE.encodeUtf8 . T.concat $ chunk 
-      liftIO $ writeChan outChan $ ChanContent extDoc
-
-      -- outChan <- asks aENLPInputChannel
-      -- extDoc <- NLP.tokenizeByteString . BLU.fromString . concat $ lines
-      -- liftIO . (writeChan outChan) . ChanContent $ extDoc
-      -- extDoc <- NLP.tokenizeByteString . BLU.fromString . concat $ lines
-      -- liftIO $ writeChan outChan (ChanContent extDoc)
-
-    importFile :: FilePath -> AppT IO [[T.Text]] 
+    importFile :: FilePath -> AppT IO [BS.ByteString] 
     importFile fp = do
+      liftIO . putStrLn $ "processing file " ++ fp
       n <- asks aENLPChunkLen
-      lines <- liftIO . fmap ((chunksOf n) . T.lines) . TIO.readFile $ fp
+      lines <- liftIO
+        . fmap (
+          (map (TE.encodeUtf8 . T.concat))
+          . (chunksOf n)
+          . T.lines)
+        . TIO.readFile $ fp
       lines `seq` pure lines 
 
-    -- chunkLines :: Int -> [String] -> AppT IO [[String]] 
-    -- chunkLines _ [] = pure []  
-    -- chunkLines n xs = do
-    --   let lines = take n xs
-    --   ys <- chunkLines n (drop n xs)
-    --   pure $ lines : ys
+    processingNLP :: BS.ByteString -> AppT IO ()
+    processingNLP bs = do
+      extDoc <- NLP.tokenizeByteString bs
+      out <- asks aENLPOutputChannel
+      liftIO $ extDoc `seq` putMVar out (Just extDoc)
+      --liftIO $ putMVar out (Just extDoc)
 
     consuming :: Ext.Document -> AppT IO ()
     consuming doc = do
@@ -137,22 +148,33 @@ main = do
       -- D.getCurrentIndex >>= liftIO . putStrLn . show
       pure sId 
 
-    producing
-      :: AppEnv
-      -> FilePath
-      -> String
-      -> IO ThreadId 
-    producing env path fileEnding =
-      forkIO $ runReaderT (runApp (go path fileEnding)) env
+    close env = do
+      runReaderT (runApp close') env
 
-    go :: FilePath -> String -> AppT IO ()
-    go path fileEnding = do
-      files <- liftIO $ listDirectory path 
-      outChan <- asks aENLPInputChannel
-      let files' = map ((++) path) $ filter (isSuffixOf fileEnding) files
-      liftIO $ mapM_ ((writeChan outChan) . ChanContent) files'
-      nThreads <- asks aENLPNThreads
-      liftIO $ replicateM_ nThreads $ writeChan outChan Poison
+    close' = do
+      D.close
+      SP.close
+      
+    -- processChunk :: MVar (Maybe Ext.Document) -> T.Text -> AppT IO ()
+    -- processChunk outChan chunk = do
+    --   extDoc <- NLP.tokenizeByteString . TE.encodeUtf8 . T.concat $ chunk 
+    --   liftIO $ writeChan outChan $ ChanContent extDoc
+
+      -- outChan <- asks aENLPInputChannel
+      -- extDoc <- NLP.tokenizeByteString . BLU.fromString . concat $ lines
+      -- liftIO . (writeChan outChan) . ChanContent $ extDoc
+      -- extDoc <- NLP.tokenizeByteString . BLU.fromString . concat $ lines
+      -- liftIO $ writeChan outChan (ChanContent extDoc)
+
+
+    -- chunkLines :: Int -> [String] -> AppT IO [[String]] 
+    -- chunkLines _ [] = pure []  
+    -- chunkLines n xs = do
+    --   let lines = take n xs
+    --   ys <- chunkLines n (drop n xs)
+    --   pure $ lines : ys
+
+
 
 
 -- readDirectory :: FilePath -> String -> AppT IO ()
