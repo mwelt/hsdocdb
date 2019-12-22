@@ -136,7 +136,7 @@ defaultStanfordUrl =
 newStanfordTokenizerEnv = StanfordTokenizerEnv defaultStanfordUrl
   <$> HTTP.newManager HTTP.defaultManagerSettings
 
-defaultNLPNThreads = 6 :: Int
+defaultNLPNThreads = 3 :: Int
 defaultNLPChunkLen = 12 :: Int
 
 newAppEnv = (AppEnv defaultNLPNThreads defaultNLPChunkLen)

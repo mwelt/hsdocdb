@@ -32,8 +32,7 @@ import System.IO.Error hiding (catch)
 -- http://hackage.haskell.org/package/containers-0.6.2.1/docs/Data-Sequence.html#v:cycleTaking
 
 runQueueBasedWorker
-  :: (Show a)
-  => AppEnv
+  :: AppEnv
   -> (a -> AppT IO ())
   -> MVar (Maybe a)
   -> MVar ()
@@ -42,14 +41,14 @@ runQueueBasedWorker env fn queue mutex = forkIO $
   runReaderT (runApp (go queue mutex fn)) env
 
   where
-    go :: (Show a) => MVar (Maybe a) -> MVar () -> (a -> AppT IO ()) -> AppT IO ()
+    go :: MVar (Maybe a) -> MVar () -> (a -> AppT IO ()) -> AppT IO ()
     go queue mutex fn = do
       liftIO $ do
         takeMVar $ mutex
         putStrLn "thread locked"
       loop queue mutex fn
 
-    loop :: (Show a) => MVar (Maybe a) -> MVar () -> (a -> AppT IO ()) -> AppT IO () 
+    loop :: MVar (Maybe a) -> MVar () -> (a -> AppT IO ()) -> AppT IO () 
     loop queue mutex fn = do
       x <- liftIO . takeMVar $ queue 
       case x of
@@ -61,16 +60,30 @@ runQueueBasedWorker env fn queue mutex = forkIO $
           putStrLn "unlocking thread"
           putMVar mutex ()
         
+stanford9000Url =
+  "http://localhost:9000/?properties={\"annotators\":\"tokenize,ssplit\",\"outputFormat\":\"json\"}" :: String
+
+stanford9001Url =
+  "http://localhost:9001/?properties={\"annotators\":\"tokenize,ssplit\",\"outputFormat\":\"json\"}" :: String
+
+-- >>> [1..4] 
+-- [1,2,3,4]
 
 main :: IO ()
 main = do
 
-  env <- newAppEnv
+  env' <- newAppEnv
+  let env = env' { aENLPChunkLen = 45, aENLPNThreads = 3 }
   let nlpNThreads = aENLPNThreads env
   let c1 = aENLPInputChannel env
   let c2 = aENLPOutputChannel env
   consumerMutex <- newMVar ()
   processMutex <- replicateM nlpNThreads $ newMVar ()
+  let k = floor $ (fromIntegral nlpNThreads) / 2.0
+  let nlpEnv = aEStanfordTokenizerEnv env
+  let envs9000 = [env { aEStanfordTokenizerEnv = ( nlpEnv { stEUrl = stanford9000Url }) } | _ <- [1..nlpNThreads]]
+  -- let envs9001 = [env { aEStanfordTokenizerEnv = ( nlpEnv { stEUrl = stanford9001Url }) } | _ <- [k+1 .. nlpNThreads]]
+  let envs = envs9000 -- <> envs9001
 
   -- start producer thread
   producingThread <- producing env "data2/" ".abstr"
@@ -78,7 +91,7 @@ main = do
 
   -- start worker threads
   processingThreads <-
-    mapM (runQueueBasedWorker env processingNLP c1) processMutex
+    mapM (\(m, e) -> runQueueBasedWorker' e processingNLP c1 m) $ zip processMutex envs
   putStrLn $ "started processing threads " ++ (show processingThreads)
 
   -- -- start single final consumer thread
@@ -102,10 +115,10 @@ main = do
       -> String
       -> IO ThreadId 
     producing env path fileEnding =
-      forkIO $ runReaderT (runApp (go path fileEnding)) env
+      forkIO $ runReaderT (runApp (goProducing path fileEnding)) env
 
-    go :: FilePath -> String -> AppT IO ()
-    go path fileEnding = do
+    goProducing :: FilePath -> String -> AppT IO ()
+    goProducing path fileEnding = do
       files <- liftIO $ listDirectory path 
       let files' = map ((++) path) $ filter (isSuffixOf fileEnding) files
       out <- asks aENLPInputChannel
@@ -129,6 +142,10 @@ main = do
         . TIO.readFile $ fp
       lines `seq` pure lines 
 
+    runQueueBasedWorker' e fn c2 cM = do
+      liftIO . putStrLn $ "Starting worker on url " <> (stEUrl . aEStanfordTokenizerEnv $ e)
+      runQueueBasedWorker e fn c2 cM
+       
     processingNLP :: BS.ByteString -> AppT IO ()
     processingNLP bs = do
       extDoc <- NLP.tokenizeByteString bs
